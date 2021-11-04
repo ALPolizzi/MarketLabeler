@@ -1,0 +1,65 @@
+---
+title: "Trade Data Labeler"
+author: "Anthony Polizzi"
+output: html_notebook
+---
+
+
+# Set parameters:
+### A
+> Represents the opportunity cost of holding a trade for another timeslice
+
+### Fee_Maker
+> Represents the fraction of an order's volume which will be paid in fees when it is filled from the order book
+
+### Fee_Taker
+> Represents the fraction of an order's volume which will be paid in fees when it is filled without being placed on the books
+
+```{r}
+A <- 0.001
+Fee_Maker <- 0.001
+Fee_Taker <- 0.0025
+
+```
+# Get Data
+* OHLCVT frame
+* B/A Spreads
+
+# Feature Engineering:
+
+* Time Adjusted Profitablility 
+  + TAP(Exits[t][n]) = (|Enter - Exit| - Fee * Enter - Fee * Exit) / (Time_Held)
+  + where n is an Int in range(len(Exits))
+  + If TAP > A: Will need to store as (TAP, timestamp) on heap
+  + Else, don't store
+  + Thus Ideal_Exit for trade at time t is peek(Dataframe[row]$TAP)
+
+* Spread 
+  + =( (ask-bid) / avg(ask,bid) )
+  + ie, percent of price that B/A spread represents
+
+* Slippage
+  + Slippage will be estimated using a moving standard deviation of the spread over a number of recent periods
+
+# A Naive Approach 
+Neglecting slippage, assuming market orders of volume 1,
+Dataframe has the following columns: O, H, L, C, V, T, TAP
+O(n^2):
+>For each row in Dataframe:  
+   Enter_h <- row$ H  
+   Enter_l <- row$ L  
+   Fee_enter_h <- row$ H * Fee_Taker  
+   Fee_enter_l <- row$ L * Fee_Taker  
+   row$ TAP <- binomial_heap(numeric)  
+   For each subsequent_row after this one in Dataframe:  
+     Time_Held <- row$ T - subsequent_row$ T  
+     Fee_exit_h <- subsequent_row$ L * Fee_Taker  
+     Fee_exit_l <- subsequent_row$ H * Fee_Taker  
+     TAP_h <- (Enter_h - subsequent_row$ L - Fee_enter_h - Fee_exit_h) / Time_Held  
+     TAP_l <- (subsequent_row$ H - Enter_l - Fee_enter_l - Fee_exit_l) / Time_Held  
+     if TAP_h > A:  
+        row$ TAP <- insert(row$ TAP, TAP_h, c(subsequent_row$ T, 's'))  
+     if TAP_l > A:  
+        row$ TAP <- insert(row$ TAP, TAP_l, c(subsequent_row$ T, 'b'))  
+
+This produces the TAP column of the Dataframe which consists of a binomal heap key'd with the calculated Time-Adjusted-Profitability of exiting a trade entered on this row at the time in value vector via the type of trade listed in the vector (b/s)->(buy/sell)
